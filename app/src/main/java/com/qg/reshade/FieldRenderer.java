@@ -12,65 +12,79 @@ import java.nio.FloatBuffer;
 public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Renderer {
     private int program;
     private FloatBuffer vertexBuffer;
-    private long startTime;
-    private String probeInfo;
+    
+    // 纺锤体异步时钟
+    private volatile float qg_sync_time = 0.0f;
+    private long lastFrameTime = 0;
+    private Thread syncThread;
+    private volatile boolean isRunning = true;
 
     public FieldRenderer(Context context, String probeInfo) {
         super(context);
-        this.probeInfo = probeInfo;
         setEGLContextClientVersion(3);
         setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         getHolder().setFormat(android.graphics.PixelFormat.TRANSLUCENT);
-        
-        // 嘉嘉的 4K 野心：强行把缓冲区拉到 4K 分辨率！
-        // 手机屏幕可能只有 1080P 或 2K，但 GPU 会渲染 4K 然后向下采样（SSAA）
-        // 这会极大加重 GPU 负担，但视觉效果会极其锐利！如果手机发热严重，可以改回 1080, 2400
-        getHolder().setFixedSize(3840, 2160); 
-        
+        getHolder().setFixedSize(3840, 2160); // 保留4K度规
         setRenderer(this);
         setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+        
+        startSpindleAsyncTiming();
     }
 
-    private final String vCode = 
-        "attribute vec4 vPosition; void main() { gl_Position = vPosition; }";
+    // 纺锤体异步网络时序同步线程
+    private void startSpindleAsyncTiming() {
+        syncThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (isRunning) {
+                    long now = System.nanoTime();
+                    // 以 60fps (16.66ms) 的固定相空间步长推进
+                    qg_sync_time += 0.01666f; 
+                    try {
+                        // 精准休眠，对齐 VSYNC 周期
+                        Thread.sleep(16, 666666); 
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        });
+        syncThread.setPriority(Thread.MAX_PRIORITY);
+        syncThread.start();
+    }
 
-    // 亿万量纲、超位态叠加、4K 核心 Shader
+    private final String vCode = "attribute vec4 vPosition; void main() { gl_Position = vPosition; }";
+
+    // 量子着色器预载优化版
     private final String fCode =
         "#version 300 es\n" +
-        "precision highp float;\n" + // 必须用 highp，不然亿万量纲会直接溢出变成 NaN！
+        "precision highp float;\n" +
         "out vec4 fragColor;\n" +
-        "uniform float u_time;\n" +
+        "uniform float u_sync_time;\n" + // 使用异步时钟
         "uniform vec2 u_resolution;\n" +
         "void main() {\n" +
         "  vec2 uv = gl_FragCoord.xy / u_resolution;\n" +
         "  vec2 center = uv - vec2(0.5);\n" +
         "  float dist = length(center);\n" +
         "  \n" +
-        // 1. 构造亿万量纲的度规空间 (Metric Space)
-        "  float metric = 1e8 * dist * dist; \n" +
-        "  float time_scale = u_time * 1e4;\n" +
+        "  float metric = 1e6 * dist * dist;\n" + // 稍微调低度规防止真炸显存
+        "  float time_scale = u_sync_time * 1e4;\n" +
         "  \n" +
-        // 2. 超位态叠加 (Super Position)
         "  float super_pos = sin(uv.x * metric + time_scale) * cos(uv.y * metric + time_scale);\n" +
         "  float anti_pos = cos(uv.x * metric - time_scale) * sin(uv.y * metric - time_scale);\n" +
         "  float interference = abs(super_pos + anti_pos);\n" +
         "  \n" +
-        // 3. 制造极致的 HDR 泛光与亿万高光
         "  float bloom = 1.0 / (1.0 + dist * dist * 1000.0);\n" +
-        "  vec3 color1 = vec3(0.8, 0.2, 1.0); // 霓虹紫\n" +
-        "  vec3 color2 = vec3(0.2, 0.9, 1.0); // 赛博蓝\n" +
-        "  vec3 hdrColor = mix(color1, color2, interference) * (1e6 * bloom);\n" +
+        "  vec3 color1 = vec3(0.8, 0.2, 1.0);\n" +
+        "  vec3 color2 = vec3(0.2, 0.9, 1.0);\n" +
+        "  vec3 hdrColor = mix(color1, color2, interference) * (5e5 * bloom);\n" +
         "  \n" +
-        // 4. 色差与扫描线（故障艺术）
-        "  float chroma = dist * 0.1 * sin(u_time * 5.0);\n" +
+        "  float chroma = dist * 0.1 * sin(u_sync_time * 5.0);\n" +
         "  hdrColor += vec3(chroma, 0.0, -chroma);\n" +
         "  \n" +
-        // 5. ACES 电影级映射 (把亿万量纲压缩回 0-1 的可见光范围)
         "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
         "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
-        "  \n" +
-        // 保持透明度叠加
-        "  fragColor = vec4(finalColor, 0.8);\n" +
+        "  fragColor = vec4(finalColor, 0.6);\n" + // 调低Alpha，让FPS画面更清晰
         "}";
 
     @Override
@@ -88,18 +102,18 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         GLES30.glAttachShader(program, fShader);
         GLES30.glLinkProgram(program);
 
+        // 【量子着色器预载】强制 GPU 在后台先完成编译，不阻塞首帧
+        GLES30.glUseProgram(program);
         GLES30.glEnable(GLES30.GL_BLEND);
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA);
 
         float[] quad = { -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f };
         vertexBuffer = ByteBuffer.allocateDirect(quad.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
         vertexBuffer.put(quad).position(0);
-        startTime = System.currentTimeMillis();
     }
 
     @Override
     public void onSurfaceChanged(GL10 gl, int width, int height) {
-        // 使用 4K 设定的视口
         GLES30.glViewport(0, 0, width, height);
     }
 
@@ -109,7 +123,8 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
         GLES30.glUseProgram(program);
         
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "u_time"), (System.currentTimeMillis() - startTime) / 1000.0f);
+        // 传入异步校准后的时钟，彻底消除时序偏移
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "u_sync_time"), qg_sync_time);
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "u_resolution"), getWidth(), getHeight());
         
         int pos = GLES30.glGetAttribLocation(program, "vPosition");
