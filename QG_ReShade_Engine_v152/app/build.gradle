@@ -1,0 +1,20 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.qg.reshade'
+    compileSdk 33
+    defaultConfig {
+        applicationId "com.qg.reshade"
+        minSdk 29
+        targetSdk 33
+        versionCode 151
+        versionName "1.5.1"
+    }
+    externalNativeBuild {
+        cmake { path "src/main/cpp/CMakeLists.txt" }
+    }
+}
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+}
