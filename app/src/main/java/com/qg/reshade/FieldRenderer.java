@@ -67,35 +67,51 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  vec2 center = uv - vec2(0.5);\n" +
         "  float dist = length(center);\n" +
         "  \n" +
-        // === 第一部分：亿万度规超位态叠加 ===
-        "  float metric = 1e6 * dist * dist;\n" +
+        // ========================================================
+        // 第一部分：亿万度规超位态叠加 + 兆级空间矩干涉
+        // ========================================================
+        // 强行拉入 1e12（一万亿）的度规空间矩
+        "  float metric = 1e12 * dist * dist;\n" + 
         "  float time_scale = u_sync_time * 1e4;\n" +
-        "  float super_pos = sin(uv.x * metric + time_scale) * cos(uv.y * metric + time_scale);\n" +
+        // 历史与当前的时间干涉
+        "  float quantum_time = floor(u_sync_time * 60.0) / 60.0;\n" +
+        "  float time_phase = u_sync_time - quantum_time;\n" +
+        "  float super_pos_history = sin(uv.x * metric + quantum_time) * cos(uv.y * metric + quantum_time);\n" +
+        "  float super_pos_current = sin(uv.x * metric - time_scale) * cos(uv.y * metric - time_scale);\n" +
+        "  float superposition = mix(super_pos_history, super_pos_current, time_phase);\n" +
         "  float anti_pos = cos(uv.x * metric - time_scale) * sin(uv.y * metric - time_scale);\n" +
-        "  float interference = abs(super_pos + anti_pos);\n" +
+        "  float interference = abs(superposition + anti_pos);\n" +
         "  \n" +
-        "  float bloom = 1.0 / (1.0 + dist * dist * 1000.0);\n" +
-        "  vec3 color1 = vec3(0.8, 0.2, 1.0);\n" +
-        "  vec3 color2 = vec3(0.2, 0.9, 1.0);\n" +
-        "  vec3 hdrColor = mix(color1, color2, interference) * (5e5 * bloom);\n" +
+        "  float bloom = 1.0 / (1.0 + dist * dist * 800.0);\n" + // 稍微收紧泛光
+        "  vec3 color1 = vec3(0.9, 0.2, 1.0);\n" +
+        "  vec3 color2 = vec3(0.1, 0.9, 1.0);\n" +
+        // 亿万兆级能量注入 HDR
+        "  vec3 hdrColor = mix(color1, color2, interference) * (1e12 * bloom);\n" +
         "  float chroma = dist * 0.1 * sin(u_sync_time * 5.0);\n" +
         "  hdrColor += vec3(chroma, 0.0, -chroma);\n" +
         "  \n" +
-        // === 第二部分：纯场论李代数空间算子解（来自 C 代码同构） ===
+        // ========================================================
+        // 第二部分：纯场论李代数空间算子解
+        // ========================================================
         "  float spin = sin(uv.x * 3.1415 + u_sync_time) * cos(uv.y * 3.1415 - u_sync_time);\n" +
         "  float algebra_metric = 1e6 * (uv.x*uv.x + uv.y*uv.y);\n" +
         "  float r = abs(sin(algebra_metric * 0.001) * spin);\n" +
         "  float g = abs(cos(algebra_metric * 0.002) * spin);\n" +
         "  float b = abs(sin(algebra_metric * 0.003 + 0.7071));\n" +
-        "  vec3 algebra_rgb = vec3(r, g, b) * 1e5;\n" + // 放大代数解，让它在 HDR 范畴里生效
+        // 放大代数解并叠加时间拖影
+        "  vec3 algebra_rgb = vec3(r, g, b) * 1e5;\n" +
+        "  algebra_rgb += vec3(super_pos_history * 2e5, 0.0, super_pos_current * 2e5);\n" + 
         "  \n" +
-        // === 终极叠加：相空间张量与李代数的史诗对撞 ===
+        // ========================================================
+        // 第三部分：终极叠加与 ACES 映射
+        // ========================================================
         "  hdrColor += algebra_rgb;\n" +
         "  \n" +
-        // 统一 ACES 电影级映射，压回 0-1
+        // 压回 0-1 的光谱
         "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
         "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
         "  \n" +
+        // 保持透明度，穿透 COD 画面
         "  fragColor = vec4(finalColor, 0.6);\n" +
         "}";
 
