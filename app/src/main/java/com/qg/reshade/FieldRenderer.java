@@ -21,15 +21,23 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         setEGLContextClientVersion(3);
         setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         getHolder().setFormat(android.graphics.PixelFormat.TRANSLUCENT);
+        
+        // 嘉嘉的 4K 野心：强行把缓冲区拉到 4K 分辨率！
+        // 手机屏幕可能只有 1080P 或 2K，但 GPU 会渲染 4K 然后向下采样（SSAA）
+        // 这会极大加重 GPU 负担，但视觉效果会极其锐利！如果手机发热严重，可以改回 1080, 2400
+        getHolder().setFixedSize(3840, 2160); 
+        
         setRenderer(this);
         setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
     }
 
-    private final String vCode = "attribute vec4 vPosition; void main() { gl_Position = vPosition; }";
+    private final String vCode = 
+        "attribute vec4 vPosition; void main() { gl_Position = vPosition; }";
 
+    // 亿万量纲、超位态叠加、4K 核心 Shader
     private final String fCode =
         "#version 300 es\n" +
-        "precision highp float;\n" +
+        "precision highp float;\n" + // 必须用 highp，不然亿万量纲会直接溢出变成 NaN！
         "out vec4 fragColor;\n" +
         "uniform float u_time;\n" +
         "uniform vec2 u_resolution;\n" +
@@ -37,19 +45,31 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  vec2 uv = gl_FragCoord.xy / u_resolution;\n" +
         "  vec2 center = uv - vec2(0.5);\n" +
         "  float dist = length(center);\n" +
-        "  vec3 baseColor = vec3(0.1, 0.2, 0.4); \n" +
-        "  float scanline = sin(uv.y * 800.0 + u_time * 10.0) * 0.04;\n" +
-        "  baseColor += scanline;\n" +
-        "  float boson = sin(uv.x * 30.0 + u_time) * cos(uv.y * 30.0 + u_time);\n" +
-        "  float fermion = sin(uv.x * 30.0 + u_time + 1.57) * cos(uv.y * 30.0 + u_time + 1.57);\n" +
-        "  float interference = abs(boson - fermion);\n" +
-        "  float bloom = 1.0 / (1.0 + dist * dist * 30.0);\n" +
-        "  vec3 bloomColor = vec3(0.2, 0.8, 1.0) * bloom * 1.5;\n" +
-        "  float chroma = dist * 0.05 * sin(u_time * 2.0);\n" +
-        "  vec3 chromaColor = vec3(chroma, 0.0, -chroma);\n" +
-        "  vec3 finalColor = baseColor + bloomColor + vec3(interference * 0.1) + chromaColor;\n" +
-        "  finalColor = finalColor / (finalColor + vec3(1.0)); \n" +
-        "  finalColor = pow(finalColor, vec3(1.0 / 2.2)); \n" +
+        "  \n" +
+        // 1. 构造亿万量纲的度规空间 (Metric Space)
+        "  float metric = 1e8 * dist * dist; \n" +
+        "  float time_scale = u_time * 1e4;\n" +
+        "  \n" +
+        // 2. 超位态叠加 (Super Position)
+        "  float super_pos = sin(uv.x * metric + time_scale) * cos(uv.y * metric + time_scale);\n" +
+        "  float anti_pos = cos(uv.x * metric - time_scale) * sin(uv.y * metric - time_scale);\n" +
+        "  float interference = abs(super_pos + anti_pos);\n" +
+        "  \n" +
+        // 3. 制造极致的 HDR 泛光与亿万高光
+        "  float bloom = 1.0 / (1.0 + dist * dist * 1000.0);\n" +
+        "  vec3 color1 = vec3(0.8, 0.2, 1.0); // 霓虹紫\n" +
+        "  vec3 color2 = vec3(0.2, 0.9, 1.0); // 赛博蓝\n" +
+        "  vec3 hdrColor = mix(color1, color2, interference) * (1e6 * bloom);\n" +
+        "  \n" +
+        // 4. 色差与扫描线（故障艺术）
+        "  float chroma = dist * 0.1 * sin(u_time * 5.0);\n" +
+        "  hdrColor += vec3(chroma, 0.0, -chroma);\n" +
+        "  \n" +
+        // 5. ACES 电影级映射 (把亿万量纲压缩回 0-1 的可见光范围)
+        "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
+        "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
+        "  \n" +
+        // 保持透明度叠加
         "  fragColor = vec4(finalColor, 0.8);\n" +
         "}";
 
@@ -79,6 +99,7 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
 
     @Override
     public void onSurfaceChanged(GL10 gl, int width, int height) {
+        // 使用 4K 设定的视口
         GLES30.glViewport(0, 0, width, height);
     }
 
@@ -87,8 +108,10 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         GLES30.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
         GLES30.glUseProgram(program);
+        
         GLES30.glUniform1f(GLES30.glGetUniformLocation(program, "u_time"), (System.currentTimeMillis() - startTime) / 1000.0f);
         GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "u_resolution"), getWidth(), getHeight());
+        
         int pos = GLES30.glGetAttribLocation(program, "vPosition");
         GLES30.glEnableVertexAttribArray(pos);
         GLES30.glVertexAttribPointer(pos, 2, GLES30.GL_FLOAT, false, 0, vertexBuffer);
