@@ -15,6 +15,7 @@ public class MainActivity extends Activity {
         try { System.loadLibrary("qgreshade"); } catch (Exception e) {}
     }
     private native String probeKernel();
+    
     private static final int SHIZUKU_REQUEST_CODE = 1003;
     private static final int OVERLAY_REQUEST_CODE = 1004;
 
@@ -22,6 +23,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
+        // 1. 悬浮窗权限（必须给，不然盖不住游戏）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
             startActivityForResult(intent, OVERLAY_REQUEST_CODE);
@@ -29,6 +31,7 @@ public class MainActivity extends Activity {
             return;
         }
 
+        // 2. Shizuku 权限
         if (Shizuku.pingBinder()) {
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                 Shizuku.requestPermission(SHIZUKU_REQUEST_CODE);
@@ -38,20 +41,30 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Shizuku 未启动，降级运行基础滤镜", Toast.LENGTH_SHORT).show();
         }
 
+        // 3. 启动底层探针
         String probeResult = "Shizuku 未授权";
-        try { probeResult = probeKernel(); } catch (Throwable t) {}
+        try { 
+            probeResult = probeKernel(); 
+        } catch (Throwable t) {
+            probeResult = "JNI 底层探针崩溃: " + t.toString();
+        }
         
+        // 4. 把全屏 GLES 画布怼上去！
         setContentView(new FieldRenderer(this, probeResult));
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == OVERLAY_REQUEST_CODE) recreate();
+        if (requestCode == OVERLAY_REQUEST_CODE) {
+            recreate(); 
+        }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == SHIZUKU_REQUEST_CODE) recreate();
+        if (requestCode == SHIZUKU_REQUEST_CODE) {
+            recreate();
+        }
     }
 }
