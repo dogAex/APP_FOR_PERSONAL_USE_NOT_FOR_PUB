@@ -60,16 +60,16 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "#version 300 es\n" +
         "precision highp float;\n" +
         "out vec4 fragColor;\n" +
-        "uniform float u_sync_time;\n" + // 使用异步时钟
+        "uniform float u_sync_time;\n" +
         "uniform vec2 u_resolution;\n" +
         "void main() {\n" +
         "  vec2 uv = gl_FragCoord.xy / u_resolution;\n" +
         "  vec2 center = uv - vec2(0.5);\n" +
         "  float dist = length(center);\n" +
         "  \n" +
-        "  float metric = 1e6 * dist * dist;\n" + // 稍微调低度规防止真炸显存
+        // === 第一部分：亿万度规超位态叠加 ===
+        "  float metric = 1e6 * dist * dist;\n" +
         "  float time_scale = u_sync_time * 1e4;\n" +
-        "  \n" +
         "  float super_pos = sin(uv.x * metric + time_scale) * cos(uv.y * metric + time_scale);\n" +
         "  float anti_pos = cos(uv.x * metric - time_scale) * sin(uv.y * metric - time_scale);\n" +
         "  float interference = abs(super_pos + anti_pos);\n" +
@@ -78,13 +78,25 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  vec3 color1 = vec3(0.8, 0.2, 1.0);\n" +
         "  vec3 color2 = vec3(0.2, 0.9, 1.0);\n" +
         "  vec3 hdrColor = mix(color1, color2, interference) * (5e5 * bloom);\n" +
-        "  \n" +
         "  float chroma = dist * 0.1 * sin(u_sync_time * 5.0);\n" +
         "  hdrColor += vec3(chroma, 0.0, -chroma);\n" +
         "  \n" +
+        // === 第二部分：纯场论李代数空间算子解（来自 C 代码同构） ===
+        "  float spin = sin(uv.x * 3.1415 + u_sync_time) * cos(uv.y * 3.1415 - u_sync_time);\n" +
+        "  float algebra_metric = 1e6 * (uv.x*uv.x + uv.y*uv.y);\n" +
+        "  float r = abs(sin(algebra_metric * 0.001) * spin);\n" +
+        "  float g = abs(cos(algebra_metric * 0.002) * spin);\n" +
+        "  float b = abs(sin(algebra_metric * 0.003 + 0.7071));\n" +
+        "  vec3 algebra_rgb = vec3(r, g, b) * 1e5;\n" + // 放大代数解，让它在 HDR 范畴里生效
+        "  \n" +
+        // === 终极叠加：相空间张量与李代数的史诗对撞 ===
+        "  hdrColor += algebra_rgb;\n" +
+        "  \n" +
+        // 统一 ACES 电影级映射，压回 0-1
         "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
         "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
-        "  fragColor = vec4(finalColor, 0.6);\n" + // 调低Alpha，让FPS画面更清晰
+        "  \n" +
+        "  fragColor = vec4(finalColor, 0.6);\n" +
         "}";
 
     @Override
