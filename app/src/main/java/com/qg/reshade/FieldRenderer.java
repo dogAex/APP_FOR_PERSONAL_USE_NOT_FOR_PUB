@@ -68,22 +68,21 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  float dist = length(center);\n" +
         "  \n" +
         // ========================================================
-        // 第一部分：相空间光栅衍射物理层 (d * sin(theta) = k * lambda)
+        // 第一部分：相空间光栅衍射物理层 (打破塑料边界的核心)
         // ========================================================
-        "  float d = 0.5 + 0.1 * sin(u_sync_time); // 动态光栅间距\n" +
-        "  float theta = dist * 3.1415; // 视角偏折\n" +
-        "  float lambda = 0.7606; // 偏振驻波波长\n" +
+        "  float d = 0.5 + 0.1 * sin(u_sync_time); \n" +
+        "  float theta = dist * 3.1415; \n" +
+        "  float lambda = 0.7606; \n" +
         "  float path_diff = d * sin(theta);\n" +
         "  float phase_diff = 2.0 * 3.1415926 * path_diff / lambda;\n" +
-        "  float diffraction_intensity = abs(cos(phase_diff * 2.0)); // 第二级衍射\n" +
-        // 衍射色散（不同波长偏折角不同）
+        // 衍射色散：产生真实的雨后彩虹边缘和高光折射
         "  vec3 diff_color;\n" +
         "  diff_color.r = abs(cos(phase_diff * 1.8));\n" +
         "  diff_color.g = abs(cos(phase_diff * 2.0));\n" +
         "  diff_color.b = abs(cos(phase_diff * 2.2));\n" +
         "  \n" +
         // ========================================================
-        // 第二部分：亿万度规超位态叠加 (时间干涉)
+        // 第二部分：亿万度规超位态叠加 (中央凹神经视觉动态)
         // ========================================================
         "  float metric = 1e12 * dist * dist;\n" + 
         "  float time_scale = u_sync_time * 1e4;\n" +
@@ -95,36 +94,35 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  float interference = abs(superposition);\n" +
         "  \n" +
         // ========================================================
-        // 第三部分：纯场论李代数算子解
+        // 第三部分：独立算子解：色彩维度重构 (洗掉塑料感)
         // ========================================================
         "  float spin = sin(uv.x * 3.1415 + u_sync_time) * cos(uv.y * 3.1415 - u_sync_time);\n" +
         "  float algebra_metric = 1e6 * (uv.x*uv.x + uv.y*uv.y);\n" +
+        // 强行重构 RGB，用李代数算子替代原有的塑料色
         "  float r = abs(sin(algebra_metric * 0.001) * spin);\n" +
         "  float g = abs(cos(algebra_metric * 0.002) * spin);\n" +
         "  float b = abs(sin(algebra_metric * 0.003 + 0.7071));\n" +
         "  vec3 algebra_rgb = vec3(r, g, b) * 1e5;\n" +
         "  \n" +
         // ========================================================
-        // 第四部分：终极物理融合与最高权重覆盖
+        // 第四部分：终极物理色域融合
         // ========================================================
         "  float bloom = 1.0 / (1.0 + dist * dist * 500.0);\n" +
-        "  vec3 color1 = vec3(0.9, 0.2, 1.0);\n" +
-        "  vec3 color2 = vec3(0.1, 0.9, 1.0);\n" +
+        "  vec3 color1 = vec3(0.9, 0.2, 1.0);\n" + // 霓虹紫
+        "  vec3 color2 = vec3(0.1, 0.9, 1.0);\n" + // 赛博蓝
         "  \n" +
-        // 兆级干涉的基础泛光
+        // 兆级干涉泛光打底
         "  vec3 hdrColor = mix(color1, color2, interference) * (5e11 * bloom);\n" +
-        // 叠加相空间衍射的色散光波 (取代死板的阴影贴图)
-        "  hdrColor += diff_color * diffraction_intensity * 5e5;\n" +
-        // 叠加李代数算子
+        // 注入衍射色散，让画面拥有琉璃般的折射感
+        "  hdrColor += diff_color * 2e5;\n" +
+        // 注入李代数算子色，彻底覆盖原本的塑料色彩
         "  hdrColor += algebra_rgb;\n" +
-        // 叠加时间拖影
-        "  hdrColor += vec3(super_pos_history * 2e5, 0.0, super_pos_current * 2e5);\n" +
         "  \n" +
-        // 统一 ACES 映射，压回 0-1 光谱
+        // 统一 ACES 电影级映射，把高维色彩压回屏幕
         "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
         "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
         "  \n" +
-        // 输出，透明度 0.65 兼顾真实感与底层骨架可见度
+        // 输出
         "  fragColor = vec4(finalColor, 0.65);\n" +
         "}";
 
