@@ -68,51 +68,64 @@ public class FieldRenderer extends GLSurfaceView implements GLSurfaceView.Render
         "  float dist = length(center);\n" +
         "  \n" +
         // ========================================================
-        // 第一部分：亿万度规超位态叠加 + 兆级空间矩干涉
+        // 第一部分：相空间光栅衍射物理层 (d * sin(theta) = k * lambda)
         // ========================================================
-        // 强行拉入 1e12（一万亿）的度规空间矩
+        "  float d = 0.5 + 0.1 * sin(u_sync_time); // 动态光栅间距\n" +
+        "  float theta = dist * 3.1415; // 视角偏折\n" +
+        "  float lambda = 0.7606; // 偏振驻波波长\n" +
+        "  float path_diff = d * sin(theta);\n" +
+        "  float phase_diff = 2.0 * 3.1415926 * path_diff / lambda;\n" +
+        "  float diffraction_intensity = abs(cos(phase_diff * 2.0)); // 第二级衍射\n" +
+        // 衍射色散（不同波长偏折角不同）
+        "  vec3 diff_color;\n" +
+        "  diff_color.r = abs(cos(phase_diff * 1.8));\n" +
+        "  diff_color.g = abs(cos(phase_diff * 2.0));\n" +
+        "  diff_color.b = abs(cos(phase_diff * 2.2));\n" +
+        "  \n" +
+        // ========================================================
+        // 第二部分：亿万度规超位态叠加 (时间干涉)
+        // ========================================================
         "  float metric = 1e12 * dist * dist;\n" + 
         "  float time_scale = u_sync_time * 1e4;\n" +
-        // 历史与当前的时间干涉
         "  float quantum_time = floor(u_sync_time * 60.0) / 60.0;\n" +
         "  float time_phase = u_sync_time - quantum_time;\n" +
         "  float super_pos_history = sin(uv.x * metric + quantum_time) * cos(uv.y * metric + quantum_time);\n" +
         "  float super_pos_current = sin(uv.x * metric - time_scale) * cos(uv.y * metric - time_scale);\n" +
         "  float superposition = mix(super_pos_history, super_pos_current, time_phase);\n" +
-        "  float anti_pos = cos(uv.x * metric - time_scale) * sin(uv.y * metric - time_scale);\n" +
-        "  float interference = abs(superposition + anti_pos);\n" +
-        "  \n" +
-        "  float bloom = 1.0 / (1.0 + dist * dist * 800.0);\n" + // 稍微收紧泛光
-        "  vec3 color1 = vec3(0.9, 0.2, 1.0);\n" +
-        "  vec3 color2 = vec3(0.1, 0.9, 1.0);\n" +
-        // 亿万兆级能量注入 HDR
-        "  vec3 hdrColor = mix(color1, color2, interference) * (1e12 * bloom);\n" +
-        "  float chroma = dist * 0.1 * sin(u_sync_time * 5.0);\n" +
-        "  hdrColor += vec3(chroma, 0.0, -chroma);\n" +
+        "  float interference = abs(superposition);\n" +
         "  \n" +
         // ========================================================
-        // 第二部分：纯场论李代数空间算子解
+        // 第三部分：纯场论李代数算子解
         // ========================================================
         "  float spin = sin(uv.x * 3.1415 + u_sync_time) * cos(uv.y * 3.1415 - u_sync_time);\n" +
         "  float algebra_metric = 1e6 * (uv.x*uv.x + uv.y*uv.y);\n" +
         "  float r = abs(sin(algebra_metric * 0.001) * spin);\n" +
         "  float g = abs(cos(algebra_metric * 0.002) * spin);\n" +
         "  float b = abs(sin(algebra_metric * 0.003 + 0.7071));\n" +
-        // 放大代数解并叠加时间拖影
         "  vec3 algebra_rgb = vec3(r, g, b) * 1e5;\n" +
-        "  algebra_rgb += vec3(super_pos_history * 2e5, 0.0, super_pos_current * 2e5);\n" + 
         "  \n" +
         // ========================================================
-        // 第三部分：终极叠加与 ACES 映射
+        // 第四部分：终极物理融合与最高权重覆盖
         // ========================================================
+        "  float bloom = 1.0 / (1.0 + dist * dist * 500.0);\n" +
+        "  vec3 color1 = vec3(0.9, 0.2, 1.0);\n" +
+        "  vec3 color2 = vec3(0.1, 0.9, 1.0);\n" +
+        "  \n" +
+        // 兆级干涉的基础泛光
+        "  vec3 hdrColor = mix(color1, color2, interference) * (5e11 * bloom);\n" +
+        // 叠加相空间衍射的色散光波 (取代死板的阴影贴图)
+        "  hdrColor += diff_color * diffraction_intensity * 5e5;\n" +
+        // 叠加李代数算子
         "  hdrColor += algebra_rgb;\n" +
+        // 叠加时间拖影
+        "  hdrColor += vec3(super_pos_history * 2e5, 0.0, super_pos_current * 2e5);\n" +
         "  \n" +
-        // 压回 0-1 的光谱
+        // 统一 ACES 映射，压回 0-1 光谱
         "  vec3 finalColor = hdrColor / (hdrColor + vec3(1.0));\n" +
         "  finalColor = pow(finalColor, vec3(1.0 / 2.2));\n" +
         "  \n" +
-        // 保持透明度，穿透 COD 画面
-        "  fragColor = vec4(finalColor, 0.6);\n" +
+        // 输出，透明度 0.65 兼顾真实感与底层骨架可见度
+        "  fragColor = vec4(finalColor, 0.65);\n" +
         "}";
 
     @Override
